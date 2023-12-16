@@ -252,6 +252,7 @@ name = "game-dont-panic"
 version = "0.1.0"
 dependencies = [
  "cortex-m-rt",
+ "critical-section",
  "defmt-rtt",
  "embedded-graphics",
  "embedded-hal",
