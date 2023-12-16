@@ -1,15 +1,18 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
+use critical_section::Mutex;
 use defmt_rtt as _;
 use embedded_graphics::{
     image::{Image, ImageRaw},
     pixelcolor::BinaryColor,
     prelude::*,
 };
+use embedded_hal::digital::v2::InputPin;
+use embedded_hal::digital::v2::ToggleableOutputPin;
 use embedded_hal::timer::CountDown;
 use fugit::ExtU32;
-use embedded_hal::digital::v2::ToggleableOutputPin;
 use fugit::RateExtU32;
 use panic_halt as _;
 use sh1106::{prelude::*, Builder};
@@ -17,16 +20,14 @@ use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 use usbd_serial::SerialPort;
 use usbd_serial::USB_CLASS_CDC;
-use core::cell::RefCell;
-use critical_section::Mutex;
 use waveshare_rp2040_zero::entry;
 use waveshare_rp2040_zero::{
     hal::{
         clocks::{init_clocks_and_plls, Clock},
+        gpio::{self, Interrupt},
         i2c::I2C,
         pac,
         pac::interrupt,
-        gpio::{self, Interrupt},
         timer::Timer,
         usb::UsbBus,
         watchdog::Watchdog,
@@ -42,6 +43,16 @@ const FRAMES: &[ImageRaw<BinaryColor>] = &[
     ImageRaw::new(include_bytes!("../data/frame4.raw"), 128),
 ];
 
+enum Direction {
+    Clockwise,
+    CounterClock,
+}
+
+enum Action {
+    Rotate(Direction),
+    ReloadToggle,
+}
+
 type LedPin = gpio::Pin<gpio::bank0::Gpio15, gpio::FunctionSioOutput, gpio::PullNone>;
 type ButtonPin1 = gpio::Pin<gpio::bank0::Gpio10, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin2 = gpio::Pin<gpio::bank0::Gpio11, gpio::FunctionSioInput, gpio::PullUp>;
@@ -49,6 +60,7 @@ type ButtonPin3 = gpio::Pin<gpio::bank0::Gpio12, gpio::FunctionSioInput, gpio::P
 type LedAndButton = (LedPin, ButtonPin1, ButtonPin2, ButtonPin3);
 static GLOBAL_PINS: Mutex<RefCell<Option<LedAndButton>>> = Mutex::new(RefCell::new(None));
 static EVENTS: Mutex<RefCell<[u8; 3]>> = Mutex::new(RefCell::new([0x31; 3]));
+static ACTION: Mutex<RefCell<Option<Action>>> = Mutex::new(RefCell::new(None));
 
 #[entry]
 fn main() -> ! {
@@ -104,7 +116,9 @@ fn main() -> ! {
     // Give away our pins by moving them into the `GLOBAL_PINS` variable.
     // We won't need to access them in the main thread again
     critical_section::with(|cs| {
-        GLOBAL_PINS.borrow(cs).replace(Some((led, button1, button2, button3)));
+        GLOBAL_PINS
+            .borrow(cs)
+            .replace(Some((led, button1, button2, button3)));
     });
 
     // Configure USB serial
@@ -129,6 +143,8 @@ fn main() -> ! {
         pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
     }
 
+    let mut last_action: Option<Action> = None;
+
     loop {
         // interrupts handle everything else in this example.
         // cortex_m::asm::wfi();
@@ -138,9 +154,21 @@ fn main() -> ! {
             let events = EVENTS.borrow(cs);
             // .replace(Some((led, button1, button2, button3)));
             buf.copy_from_slice(&*events.borrow());
+
+            if let Some(action) = ACTION.borrow(cs).take() {
+                last_action = Some(action);
+            }
         });
 
         serial.write(&buf).ok();
+        serial
+            .write(match last_action {
+                Some(Action::Rotate(Direction::Clockwise)) => b" rt cw",
+                Some(Action::Rotate(Direction::CounterClock)) => b" rt cc",
+                Some(Action::ReloadToggle) => b" rl",
+                None => b" - none",
+            })
+            .ok();
         serial.write(b"\n").ok();
 
         /*
@@ -239,10 +267,23 @@ fn main() -> ! {
     */
 }
 
+enum Rotary {
+    // 11 - default
+    Rotary0,
+    // 01 - starting clockwise
+    Rotary1,
+    // 00 - halfway
+    Rotary2,
+    // 10 - starting counter-clock
+    Rotary3,
+}
+
 #[interrupt]
 fn IO_IRQ_BANK0() {
     // The `#[interrupt]` attribute covertly converts this to `&'static mut Option<LedAndButton>`
     static mut LED_AND_BUTTON: Option<LedAndButton> = None;
+    static mut ROTARY: Rotary = Rotary::Rotary0;
+    static mut DIRECTION: Option<Direction> = None;
 
     // This is one-time lazy initialisation. We steal the variables given to us
     // via `GLOBAL_PINS`.
@@ -252,66 +293,84 @@ fn IO_IRQ_BANK0() {
         });
     }
 
-    // Need to check if our Option<LedAndButtonPins> contains our pins
     if let Some(gpios) = LED_AND_BUTTON {
-        // borrow led and button by *destructuring* the tuple
-        // these will be of type `&mut LedPin` and `&mut ButtonPin`, so we don't have
-        // to move them back into the static after we use them
         let (led, button1, button2, button3) = gpios;
 
-        /*
-        // Check if the interrupt source is from the pushbutton going from high-to-low.
-        // Note: this will always be true in this example, as that is the only enabled GPIO interrupt source
-        if button.interrupt_status(Interrupt::EdgeLow) {
-            // toggle can't fail, but the embedded-hal traits always allow for it
-            // we can discard the return value by assigning it to an unnamed variable
-            let _ = led.toggle();
-
-            // Our interrupt doesn't clear itself.
-            // Do that now so we don't immediately jump back to this interrupt handler.
-            button.clear_interrupt(Interrupt::EdgeLow);
-        }
-        */
+        button1.clear_interrupt(Interrupt::EdgeLow);
+        button1.clear_interrupt(Interrupt::EdgeHigh);
+        button2.clear_interrupt(Interrupt::EdgeLow);
+        button2.clear_interrupt(Interrupt::EdgeHigh);
 
         critical_section::with(|cs| {
             let events = EVENTS.borrow(cs);
 
-            if button1.interrupt_status(Interrupt::EdgeLow) {
-                // let _ = led.toggle();
-                events.replace_with(|events| {
-                    events[0] = 0x30;
-                    *events
-                });
-                button1.clear_interrupt(Interrupt::EdgeLow);
-            }
-            if button1.interrupt_status(Interrupt::EdgeHigh) {
-                events.replace_with(|events| {
-                    events[0] = 0x31;
-                    *events
-                });
-                button1.clear_interrupt(Interrupt::EdgeHigh);
+            events.replace_with(|events| {
+                events[0] = if let Ok(true) = button1.is_high() {
+                    0x31
+                } else {
+                    0x30
+                };
+                events[1] = if let Ok(true) = button2.is_high() {
+                    0x31
+                } else {
+                    0x30
+                };
+                *events
+            });
+
+            if let (Ok(button1), Ok(button2)) = (button1.is_high(), button2.is_high()) {
+                match (&ROTARY, &DIRECTION, button1, button2) {
+                    // Rotate clockwise
+                    (Rotary::Rotary0, _, false, true) => {
+                        *DIRECTION = Some(Direction::Clockwise);
+                        *ROTARY = Rotary::Rotary1;
+                    }
+                    (Rotary::Rotary3, Some(Direction::Clockwise), true, true) => {
+                        ACTION
+                            .borrow(cs)
+                            .replace(Some(Action::Rotate(Direction::Clockwise)));
+                        *ROTARY = Rotary::Rotary0;
+                        *DIRECTION = None;
+                    }
+
+                    // Rotate counter-clock
+                    (Rotary::Rotary0, _, true, false) => {
+                        *DIRECTION = Some(Direction::CounterClock);
+                        *ROTARY = Rotary::Rotary3;
+                    }
+                    (Rotary::Rotary1, Some(Direction::CounterClock), true, true) => {
+                        ACTION
+                            .borrow(cs)
+                            .replace(Some(Action::Rotate(Direction::CounterClock)));
+                        *ROTARY = Rotary::Rotary0;
+                        *DIRECTION = None;
+                    }
+
+                    // misc
+                    (_, _, true, true) => {
+                        *ROTARY = Rotary::Rotary0;
+                        *DIRECTION = None;
+                    }
+                    (_, _, false, true) => {
+                        *ROTARY = Rotary::Rotary1;
+                    }
+                    (_, _, false, false) => {
+                        *ROTARY = Rotary::Rotary2;
+                    }
+                    (_, _, true, false) => {
+                        *ROTARY = Rotary::Rotary3;
+                    }
+                }
             }
 
-            if button2.interrupt_status(Interrupt::EdgeLow) {
-                events.replace_with(|events| {
-                    events[1] = 0x30;
-                    *events
-                });
-                button2.clear_interrupt(Interrupt::EdgeLow);
-            }
-            if button2.interrupt_status(Interrupt::EdgeHigh) {
-                events.replace_with(|events| {
-                    events[1] = 0x31;
-                    *events
-                });
-                button2.clear_interrupt(Interrupt::EdgeHigh);
-            }
+            // misc
 
             if button3.interrupt_status(Interrupt::EdgeLow) {
                 events.replace_with(|events| {
                     events[2] = 0x30;
                     *events
                 });
+                ACTION.borrow(cs).replace(Some(Action::ReloadToggle));
                 button3.clear_interrupt(Interrupt::EdgeLow);
             }
             if button3.interrupt_status(Interrupt::EdgeHigh) {
