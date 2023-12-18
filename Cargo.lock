@@ -257,6 +257,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-hal",
  "fugit",
+ "itoa",
  "nb 1.1.0",
  "panic-halt",
  "sh1106",
@@ -279,6 +280,12 @@ checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
 dependencies = [
  "either",
 ]
+
+[[package]]
+name = "itoa"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
 
 [[package]]
 name = "micromath"

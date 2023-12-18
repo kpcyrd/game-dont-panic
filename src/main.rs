@@ -1,6 +1,10 @@
 #![no_std]
 #![no_main]
 
+mod game;
+mod gfx;
+
+use crate::game::{Action, Direction, Game, Screen};
 use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt_rtt as _;
@@ -8,6 +12,7 @@ use embedded_graphics::{
     image::{Image, ImageRaw},
     pixelcolor::BinaryColor,
     prelude::*,
+    text::{Baseline, Text},
 };
 use embedded_hal::digital::v2::InputPin;
 use embedded_hal::digital::v2::ToggleableOutputPin;
@@ -43,21 +48,15 @@ const FRAMES: &[ImageRaw<BinaryColor>] = &[
     ImageRaw::new(include_bytes!("../data/frame4.raw"), 128),
 ];
 
-enum Direction {
-    Clockwise,
-    CounterClock,
-}
-
-enum Action {
-    Rotate(Direction),
-    ReloadToggle,
-}
+const DEBOUNCE_MS: u8 = 20;
 
 type LedPin = gpio::Pin<gpio::bank0::Gpio15, gpio::FunctionSioOutput, gpio::PullNone>;
 type ButtonPin1 = gpio::Pin<gpio::bank0::Gpio10, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin2 = gpio::Pin<gpio::bank0::Gpio11, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin3 = gpio::Pin<gpio::bank0::Gpio12, gpio::FunctionSioInput, gpio::PullUp>;
-type LedAndButton = (LedPin, ButtonPin1, ButtonPin2, ButtonPin3);
+type ButtonPin4 = gpio::Pin<gpio::bank0::Gpio7, gpio::FunctionSioInput, gpio::PullUp>;
+type LedAndButton = (LedPin, ButtonPin1, ButtonPin2, ButtonPin3, ButtonPin4);
+
 static GLOBAL_PINS: Mutex<RefCell<Option<LedAndButton>>> = Mutex::new(RefCell::new(None));
 static EVENTS: Mutex<RefCell<[u8; 3]>> = Mutex::new(RefCell::new([0x31; 3]));
 static ACTION: Mutex<RefCell<Option<Action>>> = Mutex::new(RefCell::new(None));
@@ -94,6 +93,21 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
+    // Configure display
+    let i2c = I2C::i2c0(
+        pac.I2C0,
+        pins.gpio4.into_function(), // sda
+        pins.gpio5.into_function(), // scl
+        400.kHz(),
+        &mut pac.RESETS,
+        clocks.peripheral_clock.freq(),
+    );
+    let mut display: GraphicsMode<_> = Builder::new()
+        .with_rotation(DisplayRotation::Rotate180)
+        .connect_i2c(i2c)
+        .into();
+    display.init().unwrap();
+
     // Configure GPIO 25 as an output to drive our LED.
     // we can use reconfigure() instead of into_pull_up_input()
     // since the variable we're pushing it into has that type
@@ -103,6 +117,7 @@ fn main() -> ! {
     let button1 = pins.gpio10.reconfigure();
     let button2 = pins.gpio11.reconfigure();
     let button3 = pins.gpio12.reconfigure();
+    let button4 = pins.gpio7.reconfigure();
 
     // Trigger on the 'falling edge' of the input pin.
     // This will happen as the button is being pressed
@@ -112,13 +127,15 @@ fn main() -> ! {
     button2.set_interrupt_enabled(Interrupt::EdgeLow, true);
     button3.set_interrupt_enabled(Interrupt::EdgeHigh, true);
     button3.set_interrupt_enabled(Interrupt::EdgeLow, true);
+    button4.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+    button4.set_interrupt_enabled(Interrupt::EdgeLow, true);
 
     // Give away our pins by moving them into the `GLOBAL_PINS` variable.
     // We won't need to access them in the main thread again
     critical_section::with(|cs| {
         GLOBAL_PINS
             .borrow(cs)
-            .replace(Some((led, button1, button2, button3)));
+            .replace(Some((led, button1, button2, button3, button4)));
     });
 
     // Configure USB serial
@@ -144,28 +161,69 @@ fn main() -> ! {
     }
 
     let mut last_action: Option<Action> = None;
+    let mut game = Game::new();
 
     loop {
-        // interrupts handle everything else in this example.
-        // cortex_m::asm::wfi();
-
         let mut buf = [0u8; 3];
         critical_section::with(|cs| {
             let events = EVENTS.borrow(cs);
-            // .replace(Some((led, button1, button2, button3)));
             buf.copy_from_slice(&*events.borrow());
 
             if let Some(action) = ACTION.borrow(cs).take() {
+                game.action(&action);
                 last_action = Some(action);
             }
         });
 
+        // draw image
+        display.clear();
+        match game.screen() {
+            Screen::Start => {
+                let im = Image::new(&gfx::FERRIS_REVOLVER, Point::new(0, game::START_Y as i32));
+                im.draw(&mut display).unwrap();
+
+                Text::with_baseline(
+                    "Press shoot to start",
+                    Point::new(25, 55),
+                    gfx::TEXT_STYLE,
+                    Baseline::Top,
+                )
+                .draw(&mut display)
+                .unwrap();
+            }
+            Screen::Normal => {
+                // show ferris
+                let im = Image::new(&gfx::FERRIS_REVOLVER, Point::new(0, game.y() as i32));
+                im.draw(&mut display).unwrap();
+
+                // score
+                let mut score = itoa::Buffer::new();
+                let score = score.format(game.score());
+                Text::with_baseline(
+                    score,
+                    Point::new(gfx::text_align_right(score, gfx::SCREEN_WIDTH), 0),
+                    gfx::TEXT_STYLE,
+                    Baseline::Top,
+                )
+                .draw(&mut display)
+                .unwrap();
+            }
+            Screen::Reload => {
+                Text::with_baseline("Reload", Point::new(5, 5), gfx::TEXT_STYLE, Baseline::Top)
+                    .draw(&mut display)
+                    .unwrap();
+            }
+        }
+        display.flush().unwrap();
+
+        // test stuff
         serial.write(&buf).ok();
         serial
             .write(match last_action {
                 Some(Action::Rotate(Direction::Clockwise)) => b" rt cw",
                 Some(Action::Rotate(Direction::CounterClock)) => b" rt cc",
                 Some(Action::ReloadToggle) => b" rl",
+                Some(Action::Shoot) => b" shoot",
                 None => b" - none",
             })
             .ok();
@@ -294,7 +352,7 @@ fn IO_IRQ_BANK0() {
     }
 
     if let Some(gpios) = LED_AND_BUTTON {
-        let (led, button1, button2, button3) = gpios;
+        let (led, button1, button2, button3, button4) = gpios;
 
         button1.clear_interrupt(Interrupt::EdgeLow);
         button1.clear_interrupt(Interrupt::EdgeHigh);
@@ -363,8 +421,7 @@ fn IO_IRQ_BANK0() {
                 }
             }
 
-            // misc
-
+            // reload
             if button3.interrupt_status(Interrupt::EdgeLow) {
                 events.replace_with(|events| {
                     events[2] = 0x30;
@@ -379,6 +436,15 @@ fn IO_IRQ_BANK0() {
                     *events
                 });
                 button3.clear_interrupt(Interrupt::EdgeHigh);
+            }
+
+            // shoot
+            if button4.interrupt_status(Interrupt::EdgeLow) {
+                ACTION.borrow(cs).replace(Some(Action::Shoot));
+                button4.clear_interrupt(Interrupt::EdgeLow);
+            }
+            if button4.interrupt_status(Interrupt::EdgeHigh) {
+                button4.clear_interrupt(Interrupt::EdgeHigh);
             }
         });
     }
