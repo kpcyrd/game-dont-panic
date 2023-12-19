@@ -4,20 +4,16 @@
 mod game;
 mod gfx;
 
-use crate::game::{Action, Direction, Game, Screen};
+use crate::game::{Action, Button, Direction, Game, Screen};
 use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt_rtt as _;
 use embedded_graphics::{
-    image::{Image, ImageRaw},
-    pixelcolor::BinaryColor,
+    image::Image,
     prelude::*,
     text::{Baseline, Text},
 };
 use embedded_hal::digital::v2::InputPin;
-use embedded_hal::digital::v2::ToggleableOutputPin;
-use embedded_hal::timer::CountDown;
-use fugit::ExtU32;
 use fugit::RateExtU32;
 use panic_halt as _;
 use sh1106::{prelude::*, Builder};
@@ -38,24 +34,23 @@ use waveshare_rp2040_zero::{
         watchdog::Watchdog,
         Sio,
     },
-    Pins, XOSC_CRYSTAL_FREQ,
+    XOSC_CRYSTAL_FREQ,
 };
 
+/*
 const FRAMES: &[ImageRaw<BinaryColor>] = &[
     ImageRaw::new(include_bytes!("../data/frame1.raw"), 128),
     ImageRaw::new(include_bytes!("../data/frame2.raw"), 128),
     ImageRaw::new(include_bytes!("../data/frame3.raw"), 128),
     ImageRaw::new(include_bytes!("../data/frame4.raw"), 128),
 ];
+*/
 
-const DEBOUNCE_MS: u8 = 20;
-
-type LedPin = gpio::Pin<gpio::bank0::Gpio15, gpio::FunctionSioOutput, gpio::PullNone>;
 type ButtonPin1 = gpio::Pin<gpio::bank0::Gpio10, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin2 = gpio::Pin<gpio::bank0::Gpio11, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin3 = gpio::Pin<gpio::bank0::Gpio12, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin4 = gpio::Pin<gpio::bank0::Gpio7, gpio::FunctionSioInput, gpio::PullUp>;
-type LedAndButton = (LedPin, ButtonPin1, ButtonPin2, ButtonPin3, ButtonPin4);
+type LedAndButton = (ButtonPin1, ButtonPin2, ButtonPin3, ButtonPin4);
 
 static GLOBAL_PINS: Mutex<RefCell<Option<LedAndButton>>> = Mutex::new(RefCell::new(None));
 static EVENTS: Mutex<RefCell<[u8; 3]>> = Mutex::new(RefCell::new([0x31; 3]));
@@ -79,7 +74,7 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    // let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     // let mut delay = timer.count_down();
 
     // The single-cycle I/O block controls our GPIO pins
@@ -108,11 +103,6 @@ fn main() -> ! {
         .into();
     display.init().unwrap();
 
-    // Configure GPIO 25 as an output to drive our LED.
-    // we can use reconfigure() instead of into_pull_up_input()
-    // since the variable we're pushing it into has that type
-    let led = pins.gpio15.reconfigure();
-
     // Set up the GPIO pin that will be our input
     let button1 = pins.gpio10.reconfigure();
     let button2 = pins.gpio11.reconfigure();
@@ -135,7 +125,7 @@ fn main() -> ! {
     critical_section::with(|cs| {
         GLOBAL_PINS
             .borrow(cs)
-            .replace(Some((led, button1, button2, button3, button4)));
+            .replace(Some((button1, button2, button3, button4)));
     });
 
     // Configure USB serial
@@ -163,6 +153,8 @@ fn main() -> ! {
     let mut last_action: Option<Action> = None;
     let mut game = Game::new();
 
+    let mut last_tick = timer.get_counter();
+
     loop {
         let mut buf = [0u8; 3];
         critical_section::with(|cs| {
@@ -174,6 +166,12 @@ fn main() -> ! {
                 last_action = Some(action);
             }
         });
+
+        let elapsed = last_tick.duration_since_epoch();
+        if elapsed > game::TICK_INTERVAL {
+            game.tick();
+            last_tick = timer.get_counter();
+        }
 
         // draw image
         display.clear();
@@ -218,6 +216,7 @@ fn main() -> ! {
 
         // test stuff
         serial.write(&buf).ok();
+        /*
         serial
             .write(match last_action {
                 Some(Action::Rotate(Direction::Clockwise)) => b" rt cw",
@@ -227,12 +226,8 @@ fn main() -> ! {
                 None => b" - none",
             })
             .ok();
-        serial.write(b"\n").ok();
-
-        /*
-        delay.start(1000.millis());
-        let _ = nb::block!(delay.wait());
         */
+        serial.write(b"\n").ok();
 
         if usb_dev.poll(&mut [&mut serial]) {
             let mut buf = [0u8; 64];
@@ -352,7 +347,7 @@ fn IO_IRQ_BANK0() {
     }
 
     if let Some(gpios) = LED_AND_BUTTON {
-        let (led, button1, button2, button3, button4) = gpios;
+        let (button1, button2, button3, button4) = gpios;
 
         button1.clear_interrupt(Interrupt::EdgeLow);
         button1.clear_interrupt(Interrupt::EdgeHigh);
@@ -427,7 +422,9 @@ fn IO_IRQ_BANK0() {
                     events[2] = 0x30;
                     *events
                 });
-                ACTION.borrow(cs).replace(Some(Action::ReloadToggle));
+                ACTION
+                    .borrow(cs)
+                    .replace(Some(Action::Press(Button::ReloadToggle)));
                 button3.clear_interrupt(Interrupt::EdgeLow);
             }
             if button3.interrupt_status(Interrupt::EdgeHigh) {
@@ -435,15 +432,23 @@ fn IO_IRQ_BANK0() {
                     events[2] = 0x31;
                     *events
                 });
+                ACTION
+                    .borrow(cs)
+                    .replace(Some(Action::Release(Button::ReloadToggle)));
                 button3.clear_interrupt(Interrupt::EdgeHigh);
             }
 
             // shoot
             if button4.interrupt_status(Interrupt::EdgeLow) {
-                ACTION.borrow(cs).replace(Some(Action::Shoot));
+                ACTION
+                    .borrow(cs)
+                    .replace(Some(Action::Press(Button::Shoot)));
                 button4.clear_interrupt(Interrupt::EdgeLow);
             }
             if button4.interrupt_status(Interrupt::EdgeHigh) {
+                ACTION
+                    .borrow(cs)
+                    .replace(Some(Action::Release(Button::Shoot)));
                 button4.clear_interrupt(Interrupt::EdgeHigh);
             }
         });
