@@ -1,0 +1,8 @@
+[
+        {"x":86, "y":6, "chamber": "Loaded"},
+        {"x":102, "y":15, "chamber": "Shot"},
+        {"x":102, "y":33, "chamber": "Empty"},
+        {"x":86, "y":42, "chamber": "Empty"},
+        {"x":70, "y":32, "chamber": "Empty"},
+        {"x":70, "y":14, "chamber": "Loaded"}
+]

@@ -1,3 +1,5 @@
+use core::iter::Chain;
+use core::slice;
 use fugit::Duration;
 
 pub const START_Y: u8 = 18;
@@ -18,6 +20,13 @@ pub enum Direction {
 pub enum Gun {
     Revolver,
     // Scorpio,
+}
+
+#[derive(Clone, Copy)]
+pub enum Chamber {
+    Empty,
+    Loaded,
+    Shot,
 }
 
 pub enum Button {
@@ -43,6 +52,8 @@ pub struct Game {
     gun: Gun,
     score: u32,
     y: u8,
+    chambers: [Chamber; 6],
+    drum_cursor: u8,
 
     reload_toggle_debounce: u8,
     shoot_debounce: u8,
@@ -56,6 +67,16 @@ impl Default for Game {
             gun: Gun::Revolver,
             score: 0,
             y: START_Y,
+            // chambers: [Chamber::Loaded; 6],
+            chambers: [
+                Chamber::Loaded,
+                Chamber::Loaded,
+                Chamber::Empty,
+                Chamber::Empty,
+                Chamber::Empty,
+                Chamber::Shot,
+            ],
+            drum_cursor: 0,
 
             reload_toggle_debounce: 0,
             shoot_debounce: 0,
@@ -75,6 +96,53 @@ impl Game {
 
     pub fn y(&self) -> u8 {
         self.y
+    }
+
+    /// Create an iterator that walks over all chambers, in order, starting at the cursor
+    pub fn chambers(&self) -> Chain<slice::Iter<'_, Chamber>, slice::Iter<'_, Chamber>> {
+        self.chambers[(self.drum_cursor as usize)..]
+            .iter()
+            .chain(&self.chambers[..(self.drum_cursor as usize)])
+    }
+
+    pub fn set_chamber(&mut self, chamber: Chamber) {
+        self.chambers[self.drum_cursor as usize] = chamber;
+    }
+
+    pub fn shoot(&mut self) {
+        self.drum_clockwise();
+        match self.chambers().next() {
+            Some(Chamber::Empty) => (),
+            Some(Chamber::Loaded) => {
+                self.set_chamber(Chamber::Shot);
+                self.add_score(1);
+            }
+            Some(Chamber::Shot) => (),
+            None => (),
+        }
+    }
+
+    pub fn reload(&mut self) {
+        match self.chambers().next() {
+            Some(Chamber::Empty) => {
+                self.set_chamber(Chamber::Loaded);
+            }
+            Some(Chamber::Loaded) => (),
+            Some(Chamber::Shot) => {
+                self.set_chamber(Chamber::Empty);
+            }
+            None => (),
+        }
+    }
+
+    pub fn drum_clockwise(&mut self) {
+        self.drum_cursor += 1;
+        self.drum_cursor %= self.chambers.len() as u8;
+    }
+
+    pub fn drum_counterclock(&mut self) {
+        self.drum_cursor += (self.chambers.len() - 1) as u8;
+        self.drum_cursor %= self.chambers.len() as u8;
     }
 
     pub fn score(&self) -> u32 {
@@ -156,21 +224,22 @@ impl Game {
                 }
             }
             (Screen::Normal, Action::Press(Button::Shoot)) => {
-                self.add_score(1);
+                self.shoot();
             }
             // reload screen
-            (Screen::Reload, Action::Rotate(Direction::Clockwise)) => {}
-            (Screen::Reload, Action::Rotate(Direction::CounterClock)) => {}
+            (Screen::Reload, Action::Rotate(Direction::Clockwise)) => {
+                self.drum_clockwise();
+            }
+            (Screen::Reload, Action::Rotate(Direction::CounterClock)) => {
+                self.drum_counterclock();
+            }
+            (Screen::Reload, Action::Press(Button::Shoot)) => {
+                self.reload();
+            }
             (Screen::Reload, Action::Press(Button::ReloadToggle)) => {
                 self.screen = Screen::Normal;
             }
             // misc
-            (_, Action::Press(Button::Shoot)) => {
-                *self = Game {
-                    screen: Screen::Start,
-                    ..Default::default()
-                };
-            }
             (_, Action::Release(_)) => (),
         }
     }
