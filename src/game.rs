@@ -38,14 +38,13 @@ pub struct Revolver {
 impl Revolver {
     pub fn new() -> Self {
         Self {
-            // chambers: [Chamber::Loaded; 6],
             chambers: [
+                Chamber::Empty,
                 Chamber::Loaded,
                 Chamber::Loaded,
-                Chamber::Empty,
-                Chamber::Empty,
-                Chamber::Empty,
-                Chamber::Shot,
+                Chamber::Loaded,
+                Chamber::Loaded,
+                Chamber::Loaded,
             ],
             drum_cursor: 0,
         }
@@ -105,11 +104,10 @@ pub struct Scorpio {
 }
 
 impl Scorpio {
+    pub const FIRE_RATE: u8 = 3;
+
     pub fn new() -> Self {
-        Self {
-            // Stats taken from GTA Vice City Stories
-            rounds: 50,
-        }
+        Self { rounds: 20 }
     }
 
     pub fn shoot(&mut self) -> Option<bool> {
@@ -157,13 +155,15 @@ pub struct Game {
     reload_toggle_debounce: u8,
     shoot_debounce: u8,
     round_ticks: u8,
+    next_shot: Option<u8>,
 }
 
 impl Default for Game {
     fn default() -> Self {
         Game {
             screen: Screen::Start,
-            primary_gun: None,
+            // primary_gun: None,
+            primary_gun: Some(Scorpio::new()),
             secondary_gun: Revolver::new(),
             score: 0,
             y: START_Y,
@@ -171,6 +171,7 @@ impl Default for Game {
             reload_toggle_debounce: 0,
             shoot_debounce: 0,
             round_ticks: 0,
+            next_shot: None,
         }
     }
 }
@@ -239,6 +240,16 @@ impl Game {
             self.shoot_debounce -= 1;
         }
 
+        if let Some(next_shot) = self.next_shot {
+            let next_shot = next_shot.saturating_sub(1);
+            if next_shot == 0 {
+                self.shoot();
+                self.schedule_next_shot();
+            } else {
+                self.next_shot = Some(next_shot);
+            }
+        }
+
         if self.screen != Screen::Start {
             if self.round_ticks > 0 {
                 self.round_ticks -= 1;
@@ -255,6 +266,15 @@ impl Game {
         match button {
             Button::ReloadToggle => &mut self.reload_toggle_debounce,
             Button::Shoot => &mut self.shoot_debounce,
+        }
+    }
+
+    fn schedule_next_shot(&mut self) {
+        match self.gun() {
+            Gun::Revolver(_) => (),
+            Gun::Scorpio(_) => {
+                self.next_shot = Some(Scorpio::FIRE_RATE);
+            }
         }
     }
 
@@ -282,6 +302,7 @@ impl Game {
                     screen: Screen::Normal,
                     ..Default::default()
                 };
+                self.shoot();
             }
             (Screen::Start, _) => {}
             // default screen
@@ -304,6 +325,7 @@ impl Game {
             }
             (Screen::Normal, Action::Press(Button::Shoot)) => {
                 self.shoot();
+                self.schedule_next_shot();
             }
             // reload screen
             (Screen::Reload, Action::Rotate(Direction::Clockwise)) => {
@@ -319,6 +341,9 @@ impl Game {
                 self.screen = Screen::Normal;
             }
             // misc
+            (_, Action::Release(Button::Shoot)) => {
+                self.next_shot = None;
+            }
             (_, Action::Release(_)) => (),
         }
     }
