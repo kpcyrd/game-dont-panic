@@ -22,6 +22,9 @@ pub const CHAR_WIDTH: usize = 4;
 // Ferris: 53x30
 pub const FERRIS_REVOLVER: ImageRaw<BinaryColor> =
     ImageRaw::new(include_bytes!("../data/ferris-revolver.raw"), 52);
+// Ferris: 62x30
+pub const FERRIS_SCORPIO: ImageRaw<BinaryColor> =
+    ImageRaw::new(include_bytes!("../data/ferris-scorpio.raw"), 61);
 
 pub const fn text_align_right(text: &str, total: usize) -> i32 {
     (total - (text.len() * CHAR_WIDTH)) as i32

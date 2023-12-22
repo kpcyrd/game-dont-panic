@@ -4,7 +4,7 @@
 mod game;
 mod gfx;
 
-use crate::game::{Action, Button, Chamber, Direction, Game, Screen};
+use crate::game::{Action, Button, Chamber, Direction, Game, Gun, Screen};
 use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt_rtt as _;
@@ -192,8 +192,12 @@ fn main() -> ! {
             }
             Screen::Normal => {
                 // show ferris
-                let im = Image::new(&gfx::FERRIS_REVOLVER, Point::new(0, game.y() as i32));
-                im.draw(&mut display).unwrap();
+                let ferris = match game.gun() {
+                    Gun::Revolver(_) => &gfx::FERRIS_REVOLVER,
+                    Gun::Scorpio(_) => &gfx::FERRIS_SCORPIO,
+                };
+                let ferris = Image::new(ferris, Point::new(0, game.y() as i32));
+                ferris.draw(&mut display).unwrap();
 
                 // score
                 let mut score = itoa::Buffer::new();

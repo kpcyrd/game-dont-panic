@@ -16,10 +16,110 @@ pub enum Direction {
     CounterClock,
 }
 
-#[derive(PartialEq)]
-pub enum Gun {
-    Revolver,
-    // Scorpio,
+pub enum Gun<'a> {
+    Revolver(&'a mut Revolver),
+    Scorpio(&'a mut Scorpio),
+}
+
+impl<'a> Gun<'a> {
+    pub fn shoot(&mut self) -> Option<bool> {
+        match self {
+            Gun::Revolver(gun) => Some(gun.shoot()),
+            Gun::Scorpio(gun) => gun.shoot(),
+        }
+    }
+}
+
+pub struct Revolver {
+    chambers: [Chamber; 6],
+    drum_cursor: u8,
+}
+
+impl Revolver {
+    pub fn new() -> Self {
+        Self {
+            // chambers: [Chamber::Loaded; 6],
+            chambers: [
+                Chamber::Loaded,
+                Chamber::Loaded,
+                Chamber::Empty,
+                Chamber::Empty,
+                Chamber::Empty,
+                Chamber::Shot,
+            ],
+            drum_cursor: 0,
+        }
+    }
+
+    /// Create an iterator that walks over all chambers, in order, starting at the cursor
+    pub fn chambers(&self) -> Chain<slice::Iter<'_, Chamber>, slice::Iter<'_, Chamber>> {
+        self.chambers[(self.drum_cursor as usize)..]
+            .iter()
+            .chain(&self.chambers[..(self.drum_cursor as usize)])
+    }
+
+    fn set_chamber(&mut self, chamber: Chamber) {
+        self.chambers[self.drum_cursor as usize] = chamber;
+    }
+
+    pub fn drum_clockwise(&mut self) {
+        self.drum_cursor += 1;
+        self.drum_cursor %= self.chambers.len() as u8;
+    }
+
+    pub fn drum_counterclock(&mut self) {
+        self.drum_cursor += (self.chambers.len() - 1) as u8;
+        self.drum_cursor %= self.chambers.len() as u8;
+    }
+
+    pub fn shoot(&mut self) -> bool {
+        self.drum_clockwise();
+        match self.chambers().next() {
+            Some(Chamber::Empty) => (),
+            Some(Chamber::Loaded) => {
+                self.set_chamber(Chamber::Shot);
+                return true;
+            }
+            Some(Chamber::Shot) => (),
+            None => (),
+        }
+        false
+    }
+
+    pub fn reload(&mut self) {
+        match self.chambers().next() {
+            Some(Chamber::Empty) => {
+                self.set_chamber(Chamber::Loaded);
+            }
+            Some(Chamber::Loaded) => (),
+            Some(Chamber::Shot) => {
+                self.set_chamber(Chamber::Empty);
+            }
+            None => (),
+        }
+    }
+}
+
+pub struct Scorpio {
+    rounds: u8,
+}
+
+impl Scorpio {
+    pub fn new() -> Self {
+        Self {
+            // Stats taken from GTA Vice City Stories
+            rounds: 50,
+        }
+    }
+
+    pub fn shoot(&mut self) -> Option<bool> {
+        if self.rounds > 0 {
+            self.rounds -= 1;
+            Some(true)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -49,11 +149,10 @@ pub enum Screen {
 
 pub struct Game {
     screen: Screen,
-    gun: Gun,
+    primary_gun: Option<Scorpio>,
+    secondary_gun: Revolver,
     score: u32,
     y: u8,
-    chambers: [Chamber; 6],
-    drum_cursor: u8,
 
     reload_toggle_debounce: u8,
     shoot_debounce: u8,
@@ -64,19 +163,10 @@ impl Default for Game {
     fn default() -> Self {
         Game {
             screen: Screen::Start,
-            gun: Gun::Revolver,
+            primary_gun: None,
+            secondary_gun: Revolver::new(),
             score: 0,
             y: START_Y,
-            // chambers: [Chamber::Loaded; 6],
-            chambers: [
-                Chamber::Loaded,
-                Chamber::Loaded,
-                Chamber::Empty,
-                Chamber::Empty,
-                Chamber::Empty,
-                Chamber::Shot,
-            ],
-            drum_cursor: 0,
 
             reload_toggle_debounce: 0,
             shoot_debounce: 0,
@@ -98,51 +188,30 @@ impl Game {
         self.y
     }
 
-    /// Create an iterator that walks over all chambers, in order, starting at the cursor
-    pub fn chambers(&self) -> Chain<slice::Iter<'_, Chamber>, slice::Iter<'_, Chamber>> {
-        self.chambers[(self.drum_cursor as usize)..]
-            .iter()
-            .chain(&self.chambers[..(self.drum_cursor as usize)])
+    pub fn gun(&mut self) -> Gun<'_> {
+        self.primary_gun
+            .as_mut()
+            .map(Gun::Scorpio)
+            .unwrap_or(Gun::Revolver(&mut self.secondary_gun))
     }
 
-    pub fn set_chamber(&mut self, chamber: Chamber) {
-        self.chambers[self.drum_cursor as usize] = chamber;
+    pub fn chambers(&self) -> Chain<slice::Iter<'_, Chamber>, slice::Iter<'_, Chamber>> {
+        self.secondary_gun.chambers()
     }
 
     pub fn shoot(&mut self) {
-        self.drum_clockwise();
-        match self.chambers().next() {
-            Some(Chamber::Empty) => (),
-            Some(Chamber::Loaded) => {
-                self.set_chamber(Chamber::Shot);
+        match self.gun().shoot() {
+            // did fire
+            Some(true) => {
                 self.add_score(1);
             }
-            Some(Chamber::Shot) => (),
-            None => (),
-        }
-    }
-
-    pub fn reload(&mut self) {
-        match self.chambers().next() {
-            Some(Chamber::Empty) => {
-                self.set_chamber(Chamber::Loaded);
+            // did not fire (but gun is not used up)
+            Some(false) => (),
+            // primary weapon is used up
+            None => {
+                self.primary_gun = None;
             }
-            Some(Chamber::Loaded) => (),
-            Some(Chamber::Shot) => {
-                self.set_chamber(Chamber::Empty);
-            }
-            None => (),
         }
-    }
-
-    pub fn drum_clockwise(&mut self) {
-        self.drum_cursor += 1;
-        self.drum_cursor %= self.chambers.len() as u8;
-    }
-
-    pub fn drum_counterclock(&mut self) {
-        self.drum_cursor += (self.chambers.len() - 1) as u8;
-        self.drum_cursor %= self.chambers.len() as u8;
     }
 
     pub fn score(&self) -> u32 {
@@ -151,6 +220,14 @@ impl Game {
 
     pub fn add_score(&mut self, points: u32) {
         self.score = self.score.saturating_add(points);
+        if self.primary_gun.is_some() {
+            return;
+        }
+
+        // bonus weapon drop
+        if self.score % 10 == 0 {
+            self.primary_gun = Some(Scorpio::new());
+        }
     }
 
     pub fn tick(&mut self) {
@@ -203,7 +280,6 @@ impl Game {
             (Screen::Start, Action::Press(Button::Shoot)) => {
                 *self = Game {
                     screen: Screen::Normal,
-                    score: 1337,
                     ..Default::default()
                 };
             }
@@ -219,8 +295,11 @@ impl Game {
             }
             (Screen::Normal, Action::Press(Button::ReloadToggle)) => {
                 // only the revolver can be reloaded
-                if self.gun == Gun::Revolver {
-                    self.screen = Screen::Reload;
+                match self.gun() {
+                    Gun::Revolver(_) => {
+                        self.screen = Screen::Reload;
+                    }
+                    Gun::Scorpio(_) => (),
                 }
             }
             (Screen::Normal, Action::Press(Button::Shoot)) => {
@@ -228,13 +307,13 @@ impl Game {
             }
             // reload screen
             (Screen::Reload, Action::Rotate(Direction::Clockwise)) => {
-                self.drum_clockwise();
+                self.secondary_gun.drum_clockwise();
             }
             (Screen::Reload, Action::Rotate(Direction::CounterClock)) => {
-                self.drum_counterclock();
+                self.secondary_gun.drum_counterclock();
             }
             (Screen::Reload, Action::Press(Button::Shoot)) => {
-                self.reload();
+                self.secondary_gun.reload();
             }
             (Screen::Reload, Action::Press(Button::ReloadToggle)) => {
                 self.screen = Screen::Normal;
