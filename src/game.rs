@@ -36,6 +36,7 @@ pub enum Screen {
     Start,
     Normal,
     Reload,
+    Wasted,
 }
 
 pub struct Game {
@@ -131,18 +132,20 @@ impl Game {
             self.shoot_debounce -= 1;
         }
 
-        if let Some(next_shot) = self.next_shot {
-            let next_shot = next_shot.saturating_sub(1);
-            if next_shot == 0 {
-                self.shoot();
-                self.schedule_next_shot();
-            } else {
-                self.next_shot = Some(next_shot);
+        if let Screen::Normal | Screen::Reload = self.screen {
+            if let Some(next_shot) = self.next_shot {
+                let next_shot = next_shot.saturating_sub(1);
+                if next_shot == 0 {
+                    self.shoot();
+                    self.schedule_next_shot();
+                } else {
+                    self.next_shot = Some(next_shot);
+                }
             }
-        }
 
-        if self.lawn.tick(self.score, random) {
-            self.screen = Screen::Start;
+            if self.lawn.tick(self.score, random) {
+                self.screen = Screen::Wasted;
+            }
         }
     }
 
@@ -224,6 +227,11 @@ impl Game {
             (Screen::Reload, Action::Press(Button::ReloadToggle)) => {
                 self.screen = Screen::Normal;
             }
+            // game over screen
+            (Screen::Wasted, Action::Press(Button::Shoot)) => {
+                self.screen = Screen::Start;
+            }
+            (Screen::Wasted, _) => {}
             // misc
             (_, Action::Release(Button::Shoot)) => {
                 self.next_shot = None;

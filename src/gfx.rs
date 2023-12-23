@@ -35,6 +35,8 @@ pub const FERRIS_SCORPIO: ImageRaw<BinaryColor> =
 // Opponent: 30x22
 pub const OPPONENT: ImageRaw<BinaryColor> =
     ImageRaw::new(include_bytes!("../data/opponent.raw"), 29);
+// Game Over screen
+pub const WASTED: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("../data/wasted.raw"), 127);
 
 pub const fn text_align_right(text: &str, total: u8) -> i32 {
     (total as usize - (text.len() * CHAR_WIDTH)) as i32

@@ -265,6 +265,23 @@ fn main() -> ! {
                     .draw(&mut display)
                     .unwrap();
             }
+            Screen::Wasted => {
+                let im = Image::new(&gfx::WASTED, Point::new(0, 16));
+                im.draw(&mut display).unwrap();
+
+                let mut score = itoa::Buffer::new();
+                let score = score.format(game.score());
+
+                let x = (gfx::SCREEN_WIDTH - (score.len() * gfx::CHAR_WIDTH) as u8) / 2;
+                Text::with_baseline(
+                    score,
+                    Point::new(x as i32, 44),
+                    gfx::TEXT_STYLE,
+                    Baseline::Top,
+                )
+                .draw(&mut display)
+                .unwrap();
+            }
         }
         display.flush().unwrap();
 

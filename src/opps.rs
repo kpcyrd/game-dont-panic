@@ -38,35 +38,54 @@ struct Stats {
 
 impl Stats {
     pub fn from_score(score: u32) -> &'static Stats {
-        match score {
-            score if score < 3 => &Stats {
+        if score < 3 {
+            &Stats {
                 spawn_rate: 10,
                 cooldown: 5,
                 concurrent: 1,
                 speed: 15,
                 health: 1,
-            },
-            score if score < 10 => &Stats {
+            }
+        } else if score < 10 {
+            &Stats {
                 spawn_rate: 10,
                 cooldown: 5,
                 concurrent: 1,
                 speed: 10,
                 health: 1,
-            },
-            score if score < 20 => &Stats {
+            }
+        } else if score < 20 {
+            &Stats {
                 spawn_rate: 10,
                 cooldown: 5,
                 concurrent: 1,
                 speed: 10,
                 health: 1,
-            },
-            _ => &Stats {
+            }
+        } else if score < 35 {
+            &Stats {
                 spawn_rate: 10,
                 cooldown: 5,
                 concurrent: 1,
                 speed: 10,
                 health: 2,
-            },
+            }
+        } else if score < 50 {
+            &Stats {
+                spawn_rate: 7,
+                cooldown: 5,
+                concurrent: 1,
+                speed: 5,
+                health: 2,
+            }
+        } else {
+            &Stats {
+                spawn_rate: 5,
+                cooldown: 3,
+                concurrent: 1,
+                speed: 5,
+                health: 3,
+            }
         }
     }
 }
