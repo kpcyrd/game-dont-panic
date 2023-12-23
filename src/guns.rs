@@ -1,13 +1,16 @@
 use core::iter::Chain;
 use core::slice;
 
+pub const REVOLVER_OFFSET: u8 = 7;
+pub const SCORPIO_OFFSET: u8 = 8;
+
 pub enum Gun<'a> {
     Revolver(&'a mut Revolver),
     Scorpio(&'a mut Scorpio),
 }
 
 impl<'a> Gun<'a> {
-    pub fn shoot(&mut self) -> Option<bool> {
+    pub fn shoot(&mut self) -> Option<(bool, u8)> {
         match self {
             Gun::Revolver(gun) => Some(gun.shoot()),
             Gun::Scorpio(gun) => gun.shoot(),
@@ -56,18 +59,18 @@ impl Revolver {
         self.drum_cursor %= self.chambers.len() as u8;
     }
 
-    pub fn shoot(&mut self) -> bool {
+    pub fn shoot(&mut self) -> (bool, u8) {
         self.drum_clockwise();
         match self.chambers().next() {
             Some(Chamber::Empty) => (),
             Some(Chamber::Loaded) => {
                 self.set_chamber(Chamber::Shot);
-                return true;
+                return (true, REVOLVER_OFFSET);
             }
             Some(Chamber::Shot) => (),
             None => (),
         }
-        false
+        (false, REVOLVER_OFFSET)
     }
 
     pub fn reload(&mut self) {
@@ -95,10 +98,10 @@ impl Scorpio {
         Self { rounds: 20 }
     }
 
-    pub fn shoot(&mut self) -> Option<bool> {
+    pub fn shoot(&mut self) -> Option<(bool, u8)> {
         if self.rounds > 0 {
             self.rounds -= 1;
-            Some(true)
+            Some((true, SCORPIO_OFFSET))
         } else {
             None
         }

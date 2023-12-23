@@ -88,14 +88,13 @@ impl Game {
     pub fn shoot(&mut self) {
         match self.gun().shoot() {
             // did fire
-            Some(true) => {
-                // TODO: gun offset
-                if self.lawn.shoot(self.y) {
+            Some((true, offset)) => {
+                if self.lawn.shoot(self.y + offset) {
                     self.add_score(1);
                 }
             }
             // did not fire (but gun is not used up)
-            Some(false) => (),
+            Some((false, _)) => (),
             // primary weapon is used up
             None => {
                 self.primary_gun = None;
