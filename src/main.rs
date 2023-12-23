@@ -3,8 +3,11 @@
 
 mod game;
 mod gfx;
+mod guns;
+mod opps;
 
-use crate::game::{Action, Button, Chamber, Direction, Game, Gun, Screen};
+use crate::game::{Action, Button, Direction, Game, Screen};
+use crate::guns::{Chamber, Gun};
 use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt_rtt as _;
@@ -37,15 +40,6 @@ use waveshare_rp2040_zero::{
     },
     XOSC_CRYSTAL_FREQ,
 };
-
-/*
-const FRAMES: &[ImageRaw<BinaryColor>] = &[
-    ImageRaw::new(include_bytes!("../data/frame1.raw"), 128),
-    ImageRaw::new(include_bytes!("../data/frame2.raw"), 128),
-    ImageRaw::new(include_bytes!("../data/frame3.raw"), 128),
-    ImageRaw::new(include_bytes!("../data/frame4.raw"), 128),
-];
-*/
 
 type ButtonPin1 = gpio::Pin<gpio::bank0::Gpio10, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin2 = gpio::Pin<gpio::bank0::Gpio11, gpio::FunctionSioInput, gpio::PullUp>;
@@ -199,6 +193,12 @@ fn main() -> ! {
                 let ferris = Image::new(ferris, Point::new(0, game.y() as i32));
                 ferris.draw(&mut display).unwrap();
 
+                for opp in game.lawn.opponents() {
+                    let opp =
+                        Image::new(&gfx::OPPONENT, Point::new(opp.x() as i32, opp.y() as i32));
+                    opp.draw(&mut display).unwrap();
+                }
+
                 // score
                 let mut score = itoa::Buffer::new();
                 let score = score.format(game.score());
@@ -223,7 +223,10 @@ fn main() -> ! {
                     .unwrap();
 
                 // render chambers
-                for (&point, chamber) in gfx::CHAMBER_POSITIONS.iter().zip(game.chambers()) {
+                for (&point, chamber) in gfx::CHAMBER_POSITIONS
+                    .iter()
+                    .zip(game.secondary_gun.chambers())
+                {
                     match chamber {
                         Chamber::Empty => {
                             Circle::new(point, 16)

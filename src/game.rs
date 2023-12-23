@@ -1,5 +1,5 @@
-use core::iter::Chain;
-use core::slice;
+use crate::guns::{Gun, Revolver, Scorpio};
+use crate::opps::{self, Lawn};
 use fugit::Duration;
 
 pub const START_Y: u8 = 18;
@@ -9,122 +9,10 @@ const STEP_Y: u8 = 2;
 // this is not 100ms, I don't know how to configure this properly
 pub const TICK_INTERVAL: Duration<u64, 1, 8> = Duration::<u64, 1, 8>::millis(100);
 pub const DEBOUNCE_TICKS: u8 = 1;
-pub const ROUND_TICKS: u8 = 10;
 
 pub enum Direction {
     Clockwise,
     CounterClock,
-}
-
-pub enum Gun<'a> {
-    Revolver(&'a mut Revolver),
-    Scorpio(&'a mut Scorpio),
-}
-
-impl<'a> Gun<'a> {
-    pub fn shoot(&mut self) -> Option<bool> {
-        match self {
-            Gun::Revolver(gun) => Some(gun.shoot()),
-            Gun::Scorpio(gun) => gun.shoot(),
-        }
-    }
-}
-
-pub struct Revolver {
-    chambers: [Chamber; 6],
-    drum_cursor: u8,
-}
-
-impl Revolver {
-    pub fn new() -> Self {
-        Self {
-            chambers: [
-                Chamber::Empty,
-                Chamber::Loaded,
-                Chamber::Loaded,
-                Chamber::Loaded,
-                Chamber::Loaded,
-                Chamber::Loaded,
-            ],
-            drum_cursor: 0,
-        }
-    }
-
-    /// Create an iterator that walks over all chambers, in order, starting at the cursor
-    pub fn chambers(&self) -> Chain<slice::Iter<'_, Chamber>, slice::Iter<'_, Chamber>> {
-        self.chambers[(self.drum_cursor as usize)..]
-            .iter()
-            .chain(&self.chambers[..(self.drum_cursor as usize)])
-    }
-
-    fn set_chamber(&mut self, chamber: Chamber) {
-        self.chambers[self.drum_cursor as usize] = chamber;
-    }
-
-    pub fn drum_clockwise(&mut self) {
-        self.drum_cursor += 1;
-        self.drum_cursor %= self.chambers.len() as u8;
-    }
-
-    pub fn drum_counterclock(&mut self) {
-        self.drum_cursor += (self.chambers.len() - 1) as u8;
-        self.drum_cursor %= self.chambers.len() as u8;
-    }
-
-    pub fn shoot(&mut self) -> bool {
-        self.drum_clockwise();
-        match self.chambers().next() {
-            Some(Chamber::Empty) => (),
-            Some(Chamber::Loaded) => {
-                self.set_chamber(Chamber::Shot);
-                return true;
-            }
-            Some(Chamber::Shot) => (),
-            None => (),
-        }
-        false
-    }
-
-    pub fn reload(&mut self) {
-        match self.chambers().next() {
-            Some(Chamber::Empty) => {
-                self.set_chamber(Chamber::Loaded);
-            }
-            Some(Chamber::Loaded) => (),
-            Some(Chamber::Shot) => {
-                self.set_chamber(Chamber::Empty);
-            }
-            None => (),
-        }
-    }
-}
-
-pub struct Scorpio {
-    rounds: u8,
-}
-
-impl Scorpio {
-    pub const FIRE_RATE: u8 = 3;
-
-    pub fn new() -> Self {
-        Self { rounds: 20 }
-    }
-
-    pub fn shoot(&mut self) -> Option<bool> {
-        if self.rounds > 0 {
-            self.rounds -= 1;
-            Some(true)
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub enum Chamber {
-    Empty,
-    Loaded,
-    Shot,
 }
 
 pub enum Button {
@@ -147,31 +35,31 @@ pub enum Screen {
 
 pub struct Game {
     screen: Screen,
-    primary_gun: Option<Scorpio>,
-    secondary_gun: Revolver,
     score: u32,
     y: u8,
 
+    primary_gun: Option<Scorpio>,
+    pub secondary_gun: Revolver,
+    next_shot: Option<u8>,
+    pub lawn: opps::Lawn,
     reload_toggle_debounce: u8,
     shoot_debounce: u8,
-    round_ticks: u8,
-    next_shot: Option<u8>,
 }
 
 impl Default for Game {
     fn default() -> Self {
         Game {
             screen: Screen::Start,
-            // primary_gun: None,
-            primary_gun: Some(Scorpio::new()),
-            secondary_gun: Revolver::new(),
             score: 0,
             y: START_Y,
 
+            // primary_gun: Some(Scorpio::new()),
+            primary_gun: None,
+            secondary_gun: Revolver::new(),
+            next_shot: None,
+            lawn: Lawn::default(),
             reload_toggle_debounce: 0,
             shoot_debounce: 0,
-            round_ticks: 0,
-            next_shot: None,
         }
     }
 }
@@ -196,15 +84,14 @@ impl Game {
             .unwrap_or(Gun::Revolver(&mut self.secondary_gun))
     }
 
-    pub fn chambers(&self) -> Chain<slice::Iter<'_, Chamber>, slice::Iter<'_, Chamber>> {
-        self.secondary_gun.chambers()
-    }
-
     pub fn shoot(&mut self) {
         match self.gun().shoot() {
             // did fire
             Some(true) => {
-                self.add_score(1);
+                // TODO: gun offset
+                if self.lawn.shoot(self.y) {
+                    self.add_score(1);
+                }
             }
             // did not fire (but gun is not used up)
             Some(false) => (),
@@ -250,15 +137,8 @@ impl Game {
             }
         }
 
-        if self.screen != Screen::Start {
-            if self.round_ticks > 0 {
-                self.round_ticks -= 1;
-            } else {
-                self.round_ticks = ROUND_TICKS;
-
-                // TODO: the game executes one tick
-                // self.add_score(1);
-            }
+        if self.lawn.tick(self.score) {
+            self.screen = Screen::Start;
         }
     }
 
