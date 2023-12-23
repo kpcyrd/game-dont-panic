@@ -5,7 +5,6 @@ mod game;
 mod gfx;
 mod guns;
 mod opps;
-mod random;
 
 use crate::game::{Action, Button, Direction, Game, Screen};
 use crate::guns::{Chamber, Gun};
@@ -72,7 +71,7 @@ fn main() -> ! {
     .unwrap();
 
     let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
-    let rosc = RingOscillator::new(pac.ROSC).initialize();
+    let mut rosc = RingOscillator::new(pac.ROSC).initialize();
 
     // The single-cycle I/O block controls our GPIO pins
     let sio = Sio::new(pac.SIO);
@@ -164,14 +163,10 @@ fn main() -> ! {
             }
         });
 
-        // feed random-ness pool
-        game.random
-            .fill_entropy(&rosc, |rosc| rosc.get_random_bit());
-
         // execute game tick
         let elapsed = last_tick.duration_since_epoch();
         if elapsed > game::TICK_INTERVAL {
-            game.tick();
+            game.tick(&mut rosc);
             last_tick = timer.get_counter();
         }
 

@@ -366,6 +366,7 @@ dependencies = [
  "fugit",
  "itoa",
  "panic-halt",
+ "rand_core",
  "serde",
  "serde_json",
  "sh1106",

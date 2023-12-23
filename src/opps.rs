@@ -1,6 +1,6 @@
-use crate::random::Random;
 use core::iter::Flatten;
 use core::slice;
+use rand_core::RngCore;
 
 pub const FERRIS_OFFSET: u8 = 62;
 pub const SPAWN_OFFSET: u8 = 128 - FERRIS_OFFSET;
@@ -77,10 +77,12 @@ pub struct Opponent {
 }
 
 impl Opponent {
-    fn create(stats: &Stats, random: &mut Random) -> Self {
+    fn create<R: RngCore>(stats: &Stats, mut random: R) -> Self {
+        let mut y = [0u8];
+        random.fill_bytes(&mut y);
         Self {
             x: SPAWN_OFFSET,
-            y: random.get() % MAX_SPAWN_Y,
+            y: y[0] % MAX_SPAWN_Y,
             speed: stats.speed,
             next_step: 0,
             health: stats.health,
@@ -117,7 +119,7 @@ impl Opponent {
 }
 
 impl Lawn {
-    pub fn tick(&mut self, score: u32, random: &mut Random) -> bool {
+    pub fn tick<R: RngCore>(&mut self, score: u32, random: R) -> bool {
         let mut count = 0;
         for opp in self.opponents.iter_mut().flatten() {
             if opp.tick() {
