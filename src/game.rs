@@ -1,5 +1,6 @@
 use crate::guns::{Gun, Revolver, Scorpio};
 use crate::opps::{self, Lawn};
+use crate::random;
 use fugit::Duration;
 
 pub const START_Y: u8 = 18;
@@ -42,6 +43,7 @@ pub struct Game {
     pub secondary_gun: Revolver,
     next_shot: Option<u8>,
     pub lawn: opps::Lawn,
+    pub random: random::Random,
     reload_toggle_debounce: u8,
     shoot_debounce: u8,
 }
@@ -58,6 +60,7 @@ impl Default for Game {
             secondary_gun: Revolver::new(),
             next_shot: None,
             lawn: Lawn::default(),
+            random: random::Random::default(),
             reload_toggle_debounce: 0,
             shoot_debounce: 0,
         }
@@ -137,7 +140,7 @@ impl Game {
             }
         }
 
-        if self.lawn.tick(self.score) {
+        if self.lawn.tick(self.score, &mut self.random) {
             self.screen = Screen::Start;
         }
     }

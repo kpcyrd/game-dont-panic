@@ -1,9 +1,11 @@
+use crate::random::Random;
 use core::iter::Flatten;
 use core::slice;
 
 pub const FERRIS_OFFSET: u8 = 62;
 pub const SPAWN_OFFSET: u8 = 128 - FERRIS_OFFSET;
 pub const OPPONENT_HEIGHT: u8 = 21;
+pub const MAX_SPAWN_Y: u8 = 64 - OPPONENT_HEIGHT;
 
 pub struct Lawn {
     opponents: [Option<Opponent>; 25],
@@ -74,11 +76,11 @@ pub struct Opponent {
     cooldown: u8,
 }
 
-impl From<&Stats> for Opponent {
-    fn from(stats: &Stats) -> Self {
+impl Opponent {
+    fn create(stats: &Stats, random: &mut Random) -> Self {
         Self {
             x: SPAWN_OFFSET,
-            y: 10, // TODO: random
+            y: random.get() % MAX_SPAWN_Y,
             speed: stats.speed,
             next_step: 0,
             health: stats.health,
@@ -115,7 +117,7 @@ impl Opponent {
 }
 
 impl Lawn {
-    pub fn tick(&mut self, score: u32) -> bool {
+    pub fn tick(&mut self, score: u32, random: &mut Random) -> bool {
         let mut count = 0;
         for opp in self.opponents.iter_mut().flatten() {
             if opp.tick() {
@@ -131,7 +133,7 @@ impl Lawn {
             if count < stats.concurrent {
                 for slot in &mut self.opponents {
                     if slot.is_none() {
-                        let opponent = Opponent::from(stats);
+                        let opponent = Opponent::create(stats, random);
                         *slot = Some(opponent);
                         break;
                     }
