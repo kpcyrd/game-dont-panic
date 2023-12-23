@@ -1,15 +1,19 @@
-use crate::guns::{Gun, Revolver, Scorpio};
+use crate::gfx;
+use crate::guns::{self, Gun, Revolver, Scorpio};
 use crate::opps::{self, Lawn};
 use fugit::Duration;
 use rand_core::RngCore;
 
 pub const START_Y: u8 = 18;
-const MAX_Y: u8 = 34;
 const STEP_Y: u8 = 2;
 
 // this is not 100ms, I don't know how to configure this properly
 pub const TICK_INTERVAL: Duration<u64, 1, 8> = Duration::<u64, 1, 8>::millis(100);
 pub const DEBOUNCE_TICKS: u8 = 1;
+
+// quick sanity check so we don't spawn unreachable opponents
+static_assertions::const_assert!(gfx::FERRIS_MAX_Y + guns::REVOLVER_OFFSET >= opps::MAX_SPAWN_Y);
+static_assertions::const_assert!(gfx::FERRIS_MAX_Y + guns::SCORPIO_OFFSET >= opps::MAX_SPAWN_Y);
 
 pub enum Direction {
     Clockwise,
@@ -187,7 +191,7 @@ impl Game {
             (Screen::Start, _) => {}
             // default screen
             (Screen::Normal, Action::Rotate(Direction::Clockwise)) => {
-                if self.y + STEP_Y <= MAX_Y {
+                if self.y + STEP_Y <= gfx::FERRIS_MAX_Y {
                     self.y += STEP_Y;
                 }
             }

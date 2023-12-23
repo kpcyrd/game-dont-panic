@@ -370,6 +370,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sh1106",
+ "static_assertions",
  "usb-device",
  "usbd-serial",
  "waveshare-rp2040-zero",

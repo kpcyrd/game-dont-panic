@@ -1,11 +1,14 @@
+use crate::gfx;
+use crate::guns;
 use core::iter::Flatten;
 use core::slice;
 use rand_core::RngCore;
 
-pub const FERRIS_OFFSET: u8 = 62;
-pub const SPAWN_OFFSET: u8 = 128 - FERRIS_OFFSET;
-pub const OPPONENT_HEIGHT: u8 = 21;
-pub const MAX_SPAWN_Y: u8 = 64 - OPPONENT_HEIGHT;
+pub const SPAWN_OFFSET_X: u8 = gfx::SCREEN_WIDTH - gfx::FERRIS_OFFSET;
+pub const MAX_SPAWN_Y: u8 = gfx::min(
+    gfx::SCREEN_HEIGHT - gfx::OPPONENT_HEIGHT,
+    gfx::FERRIS_MAX_Y + guns::MAX_GUARANTEED_REACH,
+);
 
 pub struct Lawn {
     opponents: [Option<Opponent>; 25],
@@ -81,7 +84,7 @@ impl Opponent {
         let mut y = [0u8];
         random.fill_bytes(&mut y);
         Self {
-            x: SPAWN_OFFSET,
+            x: SPAWN_OFFSET_X,
             y: y[0] % MAX_SPAWN_Y,
             speed: stats.speed,
             next_step: 0,
@@ -93,7 +96,7 @@ impl Opponent {
 
 impl Opponent {
     pub fn x(&self) -> u8 {
-        self.x + FERRIS_OFFSET
+        self.x + gfx::FERRIS_OFFSET
     }
 
     pub fn y(&self) -> u8 {
@@ -111,7 +114,7 @@ impl Opponent {
     }
 
     pub fn hit(&mut self, y: u8) -> bool {
-        if y >= self.y && y <= self.y + OPPONENT_HEIGHT {
+        if y >= self.y && y <= self.y + gfx::OPPONENT_HEIGHT {
             self.health = self.health.saturating_sub(1);
         }
         self.health == 0

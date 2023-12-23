@@ -1,8 +1,11 @@
+use crate::gfx;
 use core::iter::Chain;
 use core::slice;
 
 pub const REVOLVER_OFFSET: u8 = 7;
 pub const SCORPIO_OFFSET: u8 = 8;
+
+pub const MAX_GUARANTEED_REACH: u8 = gfx::min(REVOLVER_OFFSET, SCORPIO_OFFSET);
 
 pub enum Gun<'a> {
     Revolver(&'a mut Revolver),
