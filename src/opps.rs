@@ -9,6 +9,7 @@ pub const MAX_SPAWN_Y: u8 = gfx::min(
     gfx::SCREEN_HEIGHT - gfx::OPPONENT_HEIGHT,
     gfx::FERRIS_MAX_Y + guns::MAX_GUARANTEED_REACH,
 );
+pub const HIT_PUSHBACK: u8 = 5;
 
 pub struct Lawn {
     opponents: [Option<Opponent>; 25],
@@ -116,6 +117,7 @@ impl Opponent {
     pub fn hit(&mut self, y: u8) -> bool {
         if y >= self.y && y <= self.y + gfx::OPPONENT_HEIGHT {
             self.health = self.health.saturating_sub(1);
+            self.x = u8::min(self.x.saturating_add(HIT_PUSHBACK), SPAWN_OFFSET_X);
         }
         self.health == 0
     }
