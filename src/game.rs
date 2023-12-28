@@ -205,7 +205,6 @@ impl Game {
             (Screen::Start, Action::Press(Button::Shoot)) => {
                 *self = Game {
                     screen: Screen::Normal,
-                    primary_gun: Some(Scorpio::new()),
                     ..Default::default()
                 };
                 self.shoot();
