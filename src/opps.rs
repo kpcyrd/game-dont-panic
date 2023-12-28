@@ -54,14 +54,6 @@ impl Stats {
                 speed: 10,
                 health: 1,
             }
-        } else if score < 20 {
-            &Stats {
-                spawn_rate: 10,
-                cooldown: 5,
-                concurrent: 1,
-                speed: 10,
-                health: 1,
-            }
         } else if score < 35 {
             &Stats {
                 spawn_rate: 10,

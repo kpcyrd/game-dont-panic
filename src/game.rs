@@ -39,6 +39,12 @@ pub enum Screen {
     Wasted,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Rumble {
+    Start((u8, u16)),
+    On(u8),
+}
+
 pub struct Game {
     screen: Screen,
     score: u32,
@@ -50,6 +56,8 @@ pub struct Game {
     pub lawn: opps::Lawn,
     reload_toggle_debounce: u8,
     shoot_debounce: u8,
+
+    pub rumble: Option<Rumble>,
 }
 
 impl Default for Game {
@@ -66,6 +74,8 @@ impl Default for Game {
             lawn: Lawn::default(),
             reload_toggle_debounce: 0,
             shoot_debounce: 0,
+
+            rumble: None,
         }
     }
 }
@@ -97,6 +107,10 @@ impl Game {
                 if self.lawn.shoot(self.y + offset) {
                     self.add_score(1);
                 }
+                self.rumble = Some(Rumble::Start((
+                    guns::SHOT_RUMBLE_TICKS,
+                    guns::SHOT_RUMBLE_DIVIDER,
+                )));
             }
             // did not fire (but gun is not used up)
             Some((false, _)) => (),
@@ -130,6 +144,10 @@ impl Game {
 
         if self.shoot_debounce > 0 {
             self.shoot_debounce -= 1;
+        }
+
+        if let Some(Rumble::On(duration)) = &mut self.rumble {
+            *duration -= 1;
         }
 
         if let Screen::Normal | Screen::Reload = self.screen {
@@ -187,6 +205,7 @@ impl Game {
             (Screen::Start, Action::Press(Button::Shoot)) => {
                 *self = Game {
                     screen: Screen::Normal,
+                    primary_gun: Some(Scorpio::new()),
                     ..Default::default()
                 };
                 self.shoot();

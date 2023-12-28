@@ -6,7 +6,7 @@ mod gfx;
 mod guns;
 mod opps;
 
-use crate::game::{Action, Button, Direction, Game, Screen};
+use crate::game::{Action, Button, Direction, Game, Rumble, Screen};
 use crate::guns::{Chamber, Gun};
 use core::cell::RefCell;
 use critical_section::Mutex;
@@ -18,6 +18,7 @@ use embedded_graphics::{
     text::{Baseline, Text},
 };
 use embedded_hal::digital::v2::InputPin;
+use embedded_hal::PwmPin;
 use fugit::RateExtU32;
 use panic_halt as _;
 use sh1106::{prelude::*, Builder};
@@ -33,6 +34,7 @@ use waveshare_rp2040_zero::{
         i2c::I2C,
         pac,
         pac::interrupt,
+        pwm,
         rosc::RingOscillator,
         timer::Timer,
         usb::UsbBus,
@@ -46,11 +48,20 @@ type ButtonPin1 = gpio::Pin<gpio::bank0::Gpio10, gpio::FunctionSioInput, gpio::P
 type ButtonPin2 = gpio::Pin<gpio::bank0::Gpio11, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin3 = gpio::Pin<gpio::bank0::Gpio12, gpio::FunctionSioInput, gpio::PullUp>;
 type ButtonPin4 = gpio::Pin<gpio::bank0::Gpio7, gpio::FunctionSioInput, gpio::PullUp>;
+type PwmChannel = pwm::Channel<pwm::Slice<pwm::Pwm4, pwm::FreeRunning>, pwm::B>;
 type LedAndButton = (ButtonPin1, ButtonPin2, ButtonPin3, ButtonPin4);
 
 static GLOBAL_PINS: Mutex<RefCell<Option<LedAndButton>>> = Mutex::new(RefCell::new(None));
 static EVENTS: Mutex<RefCell<[u8; 3]>> = Mutex::new(RefCell::new([0x31; 3]));
 static ACTION: Mutex<RefCell<Option<Action>>> = Mutex::new(RefCell::new(None));
+
+fn rumble_on(channel: &mut PwmChannel, divider: u16) {
+    channel.set_duty(channel.get_max_duty() / divider);
+}
+
+fn rumble_off(channel: &mut PwmChannel) {
+    channel.set_duty(0);
+}
 
 #[entry]
 fn main() -> ! {
@@ -104,6 +115,16 @@ fn main() -> ! {
     let button2 = pins.gpio11.reconfigure();
     let button3 = pins.gpio12.reconfigure();
     let button4 = pins.gpio7.reconfigure();
+
+    // Set up pwm
+    let pwm_slices = pwm::Slices::new(pac.PWM, &mut pac.RESETS);
+
+    let mut pwm = pwm_slices.pwm4;
+    pwm.set_ph_correct();
+    pwm.enable();
+
+    let mut channel = pwm.channel_b;
+    channel.output_to(pins.gpio9);
 
     // Trigger on the 'falling edge' of the input pin.
     // This will happen as the button is being pressed
@@ -284,6 +305,25 @@ fn main() -> ! {
             }
         }
         display.flush().unwrap();
+
+        match (game.screen(), game.rumble) {
+            // always turn off rumble on these screens
+            (Screen::Start | Screen::Wasted, Some(_)) => {
+                rumble_off(&mut channel);
+                game.rumble = None;
+            }
+            // start rumble
+            (_, Some(Rumble::Start((duration, divider)))) => {
+                rumble_on(&mut channel, divider);
+                game.rumble = Some(Rumble::On(duration));
+            }
+            // stop rumble
+            (_, Some(Rumble::On(0))) => {
+                rumble_off(&mut channel);
+                game.rumble = None;
+            }
+            _ => (),
+        }
 
         // test stuff
         serial.write(&buf).ok();
