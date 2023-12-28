@@ -6,8 +6,7 @@ pub const REVOLVER_OFFSET: u8 = 7;
 pub const SCORPIO_OFFSET: u8 = 8;
 
 pub const SHOT_RUMBLE_TICKS: u8 = 2;
-// this can be tweaked, but dividing by 1 is just maximum duty
-pub const SHOT_RUMBLE_DIVIDER: u16 = 1;
+pub const SHOT_RUMBLE_DIVIDER: u16 = 2;
 
 pub const MAX_GUARANTEED_REACH: u8 = gfx::min(REVOLVER_OFFSET, SCORPIO_OFFSET);
 
